@@ -8,7 +8,7 @@ import { type AppConfig } from "../src/config.js";
 import { DEFAULT_COMPARE_PROMPT } from "../src/prompts.js";
 import { createServer } from "../src/server.js";
 
-const SECRET_KEY = "sk-secret-key-1234567890";
+const SECRET_KEY = "sk-secret-key-1234567890"; // gitleaks:allow — dummy test fixture, not a real key
 const cfg: AppConfig = {
   apiKey: SECRET_KEY,
   model: "qwen3.7-plus",
