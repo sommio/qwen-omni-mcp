@@ -12,9 +12,12 @@
   },
   "files": [
     "dist",
-    "README.md",
-    "AGENTS.md"
+    "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/index.ts",
