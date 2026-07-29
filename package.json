@@ -3,6 +3,10 @@
   "version": "0.2.2",
   "description": "MCP server for video/image understanding via Bailian (DashScope) Qwen3.7-Plus",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sommio/qwen-omni-mcp.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"
