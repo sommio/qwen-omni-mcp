@@ -39,7 +39,7 @@ CI runs the same on Node 20 and 22. Local green ≠ CI green if you skip a step.
 
 ## Tool surface
 
-The server exposes 8 MCP tools (see `src/server.ts`): `analyze_video`, `analyze_image`, `summarize_video`, `extract_video_text`, `video_qa`, `compare_video_frames`, `check_endpoint_status`, `list_capabilities`. Do not silently change a tool's name or argument schema — that breaks MCP clients. Add new tools rather than renaming.
+The server exposes 3 MCP tools (see `src/server.ts`): `analyze_video`, `analyze_image`, `check_endpoint_status`. Do not silently change a tool's name or argument schema — that breaks MCP clients. Add new tools rather than renaming.
 
 `check_endpoint_status` must redact the API key (`redactKey`). There is a test asserting no key leaks — keep it passing.
 

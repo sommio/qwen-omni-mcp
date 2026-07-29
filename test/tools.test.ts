@@ -8,7 +8,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type AppConfig } from "../src/config.js";
-import { DEFAULT_COMPARE_PROMPT } from "../src/prompts.js";
 import { createServer } from "../src/server.js";
 
 const SECRET_KEY = "sk-secret-key-1234567890"; // gitleaks:allow — dummy test fixture, not a real key
@@ -76,20 +75,11 @@ function textOf(result: unknown): string {
 }
 
 describe("MCP tool wiring (in-memory e2e)", () => {
-  it("exposes all 8 tools", async () => {
+  it("exposes all 3 tools", async () => {
     await withClient(async (client) => {
       const { tools } = await client.listTools();
       expect(tools.map((t) => t.name).sort()).toEqual(
-        [
-          "analyze_image",
-          "analyze_video",
-          "check_endpoint_status",
-          "compare_video_frames",
-          "extract_video_text",
-          "list_capabilities",
-          "summarize_video",
-          "video_qa",
-        ].sort(),
+        ["analyze_image", "analyze_video", "check_endpoint_status"].sort(),
       );
     });
   });
@@ -121,21 +111,6 @@ describe("MCP tool wiring (in-memory e2e)", () => {
     expect(body.max_tokens).toBe(512);
   });
 
-  it("summarize_video detailed uses the detailed prompt and 1024 tokens", async () => {
-    const cap = mockCapture();
-    await withClient(async (client) => {
-      const r = await client.callTool({
-        name: "summarize_video",
-        arguments: { video_url: "https://v/x.mp4", style: "detailed" },
-      });
-      expect(textOf(r)).toBe("answer");
-    });
-    const body = await cap.body();
-    expect(body.max_tokens).toBe(1024);
-    const prompt = (body.messages as { content: { text?: string }[] }[])[0]!.content[0]!.text ?? "";
-    expect(prompt).toContain("comprehensive");
-  });
-
   it("maps a backend 500 to an isError tool result", async () => {
     server.use(http.post(endpoint, () => new HttpResponse(null, { status: 500 })));
     await withClient(async (client) => {
@@ -148,36 +123,6 @@ describe("MCP tool wiring (in-memory e2e)", () => {
     });
   });
 
-  it("video_qa wraps the question and uses 512 tokens", async () => {
-    const cap = mockCapture();
-    await withClient(async (client) => {
-      const r = await client.callTool({
-        name: "video_qa",
-        arguments: { video_url: "https://v/x.mp4", question: "how many cats?" },
-      });
-      expect(textOf(r)).toBe("answer");
-    });
-    const body = await cap.body();
-    const prompt = (body.messages as { content: { text?: string }[] }[])[0]!.content[0]!.text ?? "";
-    expect(prompt).toContain("how many cats?");
-    expect(body.max_tokens).toBe(512);
-  });
-
-  it("compare_video_frames applies the default comparison prompt", async () => {
-    const cap = mockCapture();
-    await withClient(async (client) => {
-      const r = await client.callTool({
-        name: "compare_video_frames",
-        arguments: { video_url: "https://v/x.mp4" },
-      });
-      expect(textOf(r)).toBe("answer");
-    });
-    const body = await cap.body();
-    const prompt = (body.messages as { content: { text?: string }[] }[])[0]!.content[0]!.text ?? "";
-    expect(prompt).toContain(DEFAULT_COMPARE_PROMPT);
-    expect(body.max_tokens).toBe(1024);
-  });
-
   it("check_endpoint_status never leaks the API key", async () => {
     await withClient(async (client) => {
       const r = await client.callTool({ name: "check_endpoint_status", arguments: {} });
@@ -185,15 +130,6 @@ describe("MCP tool wiring (in-memory e2e)", () => {
       expect(text).not.toContain(SECRET_KEY);
       expect(text).toContain("sk-s…7890");
       expect(text).toContain("qwen3.7-plus");
-    });
-  });
-
-  it("list_capabilities reports the configured model", async () => {
-    await withClient(async (client) => {
-      const r = await client.callTool({ name: "list_capabilities", arguments: {} });
-      const parsed = JSON.parse(textOf(r)) as { model: string; capabilities: string[] };
-      expect(parsed.model).toBe("qwen3.7-plus");
-      expect(parsed.capabilities).toContain("Video understanding (native, no frame extraction)");
     });
   });
 });
@@ -257,8 +193,8 @@ describe("local file path support", () => {
     const cap = mockCapture();
     await withClient(async (client) => {
       await client.callTool({
-        name: "summarize_video",
-        arguments: { video_url: "https://example.com/v.mp4", style: "brief" },
+        name: "analyze_video",
+        arguments: { video_url: "https://example.com/v.mp4", question: "summarize" },
       });
     });
     expect(mediaUrlOf(await cap.body())).toBe("https://example.com/v.mp4");

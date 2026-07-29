@@ -11,14 +11,6 @@ import {
 } from "./config.js";
 import { analyze, BailianError, type MediaKind } from "./bailian.js";
 import { isRemoteUrl, isLocalPath, resolveMedia } from "./media.js";
-import {
-  SUMMARY_MAX_TOKENS,
-  SUMMARY_PROMPTS,
-  TEXT_EXTRACTION_PROMPT,
-  qaPrompt,
-  comparePrompt,
-  DEFAULT_COMPARE_PROMPT,
-} from "./prompts.js";
 
 const MAX_TOKENS_DEFAULT_VIDEO = 1024;
 const MAX_TOKENS_DEFAULT_IMAGE = 512;
@@ -120,70 +112,6 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
   );
 
   server.registerTool(
-    "summarize_video",
-    {
-      description:
-        "Generate a summary of a video. Styles: brief (1-2 sentences), standard (1-2 paragraphs), detailed (comprehensive timeline).",
-      inputSchema: {
-        video_url: mediaInput("Public URL or local file path of the video to summarize"),
-        style: z
-          .enum(["brief", "standard", "detailed"])
-          .default("standard")
-          .describe("Summary style"),
-      },
-    },
-    async (args) =>
-      mediaCall(
-        cfg,
-        "video",
-        args.video_url,
-        SUMMARY_PROMPTS[args.style],
-        SUMMARY_MAX_TOKENS[args.style],
-      ),
-  );
-
-  server.registerTool(
-    "extract_video_text",
-    {
-      description:
-        "Extract and transcribe visible text or speech from a video (on-screen text, captions, speech, slide text).",
-      inputSchema: {
-        video_url: mediaInput("Public URL or local file path of the video"),
-      },
-    },
-    async (args) => mediaCall(cfg, "video", args.video_url, TEXT_EXTRACTION_PROMPT, 1024),
-  );
-
-  server.registerTool(
-    "video_qa",
-    {
-      description: "Ask a specific question about a video's content.",
-      inputSchema: {
-        video_url: mediaInput("Public URL or local file path of the video"),
-        question: z.string().describe("Your specific question about the video"),
-      },
-    },
-    async (args) => mediaCall(cfg, "video", args.video_url, qaPrompt(args.question), 512),
-  );
-
-  server.registerTool(
-    "compare_video_frames",
-    {
-      description:
-        "Analyze changes and progression across a video (before/after, movement, progression of events).",
-      inputSchema: {
-        video_url: mediaInput("Public URL or local file path of the video"),
-        comparison_prompt: z
-          .string()
-          .default(DEFAULT_COMPARE_PROMPT)
-          .describe("What to compare across the video"),
-      },
-    },
-    async (args) =>
-      mediaCall(cfg, "video", args.video_url, comparePrompt(args.comparison_prompt), 1024),
-  );
-
-  server.registerTool(
     "check_endpoint_status",
     {
       description:
@@ -198,41 +126,6 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
             model: cfg.model,
             api_key: redactKey(cfg.apiKey),
             timeout_seconds: cfg.timeoutMs / 1000,
-          },
-          null,
-          2,
-        ),
-      ),
-  );
-
-  server.registerTool(
-    "list_capabilities",
-    {
-      description: "List the capabilities of this MCP server.",
-    },
-    () =>
-      ok(
-        JSON.stringify(
-          {
-            model: cfg.model,
-            backend: "Bailian (DashScope) OpenAI-compatible endpoint",
-            capabilities: [
-              "Video understanding (native, no frame extraction)",
-              "Image understanding",
-              "Video summarization",
-              "Video Q&A",
-              "Text extraction from video",
-              "Scene change / progression analysis",
-            ],
-            supported_formats: {
-              video: ["mp4", "webm", "mov", "avi", "mkv"],
-              image: ["jpg", "jpeg", "png", "gif", "webp", "bmp"],
-            },
-            notes: [
-              "Media: public http/https URL or local file path (local files are sent inline as base64 data URLs)",
-              "Local file size guardrail: 25MB; larger files must be hosted at a public URL",
-              "Video frame sampling is handled by Bailian server-side (fixed 0.5s/frame on OpenAI-compatible mode)",
-            ],
           },
           null,
           2,
