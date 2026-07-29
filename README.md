@@ -2,15 +2,15 @@
 
 An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video and image understanding** via [Bailian (DashScope)](https://platform.qianwenai.com) using the multimodal **Qwen3.7-Plus** model.
 
-Qwen3.7-Plus reads video natively — **no client-side frame extraction**. You pass a public media URL; the model does the rest.
+Qwen3.7-Plus reads video natively — **no client-side frame extraction**. Pass a public media URL **or a local file path**; the model does the rest.
 
 ## Highlights
 
-- **Native video understanding** — send a video URL, get grounded analysis
+- **Native video understanding** — send a video URL or local file, get grounded analysis
 - **Image understanding** — describe, Q&A, OCR
+- **Local file support** — pass a local path; files are sent inline as base64 data URLs (25MB guardrail)
 - **Convenience tools** — summarize, text extraction, frame comparison, Q&A
 - **npx-launchable** — one line in your MCP client config
-- **Hardened** — secret-leak pre-commit guard + gitleaks, strict TypeScript, full CI
 
 ## Install
 
@@ -79,18 +79,18 @@ For local development without publishing:
 
 ## Tools
 
-| Tool                    | Description                                    |
-| ----------------------- | ---------------------------------------------- |
-| `analyze_video`         | Analyze a video URL with a custom prompt       |
-| `analyze_image`         | Analyze an image URL with a custom prompt      |
-| `summarize_video`       | Brief / standard / detailed summary            |
-| `extract_video_text`    | Extract on-screen text and transcribe speech   |
-| `video_qa`              | Ask a specific question about a video          |
-| `compare_video_frames`  | Analyze changes and progression across a video |
-| `check_endpoint_status` | Show configured endpoint/model (key redacted)  |
-| `list_capabilities`     | List server capabilities and supported formats |
+| Tool                    | Description                                               |
+| ----------------------- | --------------------------------------------------------- |
+| `analyze_video`         | Analyze a video (URL or local file) with a custom prompt  |
+| `analyze_image`         | Analyze an image (URL or local file) with a custom prompt |
+| `summarize_video`       | Brief / standard / detailed summary                       |
+| `extract_video_text`    | Extract on-screen text and transcribe speech              |
+| `video_qa`              | Ask a specific question about a video                     |
+| `compare_video_frames`  | Analyze changes and progression across a video            |
+| `check_endpoint_status` | Show configured endpoint/model (key redacted)             |
+| `list_capabilities`     | List server capabilities and supported formats            |
 
-Media must be reachable via a public `http`/`https` URL. Large local videos should be hosted at a public URL (base64 data URLs over ~10MB will be rejected).
+Each media tool accepts a public `http`/`https` URL **or a local file path**. Local files are read and sent inline as base64 data URLs, with a 25MB guardrail (verified up to a 14MB video / ~18MB body, HTTP 200). Files larger than 25MB must be hosted at a public URL instead. Local input is validated by extension + magic-byte signature before encoding, so non-media files are rejected.
 
 ## Development
 
