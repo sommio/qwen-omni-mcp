@@ -1,6 +1,6 @@
 {
   "name": "qwen-omni-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "MCP server for video/image understanding via Bailian (DashScope) Qwen3.7-Plus",
   "license": "MIT",
   "type": "module",
