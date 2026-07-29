@@ -30,15 +30,6 @@
     "coverage": "vitest run --coverage",
     "prepare": "husky"
   },
-  "lint-staged": {
-    "*.{ts,js,mjs,cjs}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md,yml,yaml}": [
-      "prettier --write"
-    ]
-  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "dotenv": "^16.4.5",
