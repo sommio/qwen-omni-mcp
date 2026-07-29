@@ -35,5 +35,6 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# === Reference / vendor ===
+# Other
 ref/
+.agents/handoff/
