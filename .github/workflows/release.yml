@@ -7,17 +7,20 @@ on:
 
 permissions:
   contents: write
+  id-token: write # Required for npm OIDC trusted publishing.
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: release # Matches the npm trusted publisher binding; enables a manual approval gate.
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Trusted publishing requires Node >=22.14.
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Install (skip husky in CI)
         run: npm ci
@@ -30,6 +33,15 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+
+      # Trusted publishing (OIDC) requires npm CLI >=11.5.1; Node 22 ships npm 10.
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        # No NODE_AUTH_TOKEN: npm CLI auto-detects the OIDC environment and
+        # obtains a short-lived token from the trusted publisher binding.
+        run: npm publish --provenance --access public
 
       - uses: oven-sh/setup-bun@v2
 
