@@ -10,6 +10,7 @@ import {
   DEFAULT_TIMEOUT_SECONDS,
 } from "./config.js";
 import { analyze, BailianError, type MediaKind } from "./bailian.js";
+import { isRemoteUrl, isLocalPath, resolveMedia } from "./media.js";
 import {
   SUMMARY_MAX_TOKENS,
   SUMMARY_PROMPTS,
@@ -21,6 +22,19 @@ import {
 
 const MAX_TOKENS_DEFAULT_VIDEO = 1024;
 const MAX_TOKENS_DEFAULT_IMAGE = 512;
+
+/**
+ * Accepts either a public http/https URL or a local file path. Remote URLs are
+ * fetched by DashScope; local paths are read and sent inline as base64 data
+ * URLs (see `resolveMedia`). Relaxes the previous `z.string().url()` so callers
+ * can pass local files without a separate field — the field name and string
+ * type are unchanged, so existing MCP clients keep working.
+ */
+const mediaInput = (description: string) =>
+  z
+    .string()
+    .refine((v) => isRemoteUrl(v) || isLocalPath(v), "Must be a public URL or a local file path")
+    .describe(description);
 
 function ok(text: string): CallToolResult {
   return { content: [{ type: "text", text }], isError: false };
@@ -47,7 +61,8 @@ async function mediaCall(
   maxTokens: number,
 ): Promise<CallToolResult> {
   try {
-    const result = await analyze(cfg, { kind, url, prompt, maxTokens });
+    const resolved = await resolveMedia(url, kind);
+    const result = await analyze(cfg, { kind, url: resolved, prompt, maxTokens });
     return ok(result.answer);
   } catch (err) {
     return fail(err);
@@ -64,9 +79,9 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
     "analyze_video",
     {
       description:
-        "Analyze a video via URL using Qwen3.7-Plus (multimodal). The model reads the video natively — no client-side frame extraction. URL must be publicly reachable (http/https).",
+        "Analyze a video using Qwen3.7-Plus (multimodal). The model reads the video natively — no client-side frame extraction. Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
       inputSchema: {
-        video_url: z.string().url().describe("Public URL of the video to analyze"),
+        video_url: mediaInput("Public URL or local file path of the video to analyze"),
         question: z
           .string()
           .default("Describe what happens in this video in detail.")
@@ -86,9 +101,9 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
     "analyze_image",
     {
       description:
-        "Analyze an image via URL using Qwen3.7-Plus (multimodal). URL must be publicly reachable (http/https).",
+        "Analyze an image using Qwen3.7-Plus (multimodal). Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
       inputSchema: {
-        image_url: z.string().url().describe("Public URL of the image to analyze"),
+        image_url: mediaInput("Public URL or local file path of the image to analyze"),
         question: z
           .string()
           .default("Describe this image in detail.")
@@ -110,7 +125,7 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
       description:
         "Generate a summary of a video. Styles: brief (1-2 sentences), standard (1-2 paragraphs), detailed (comprehensive timeline).",
       inputSchema: {
-        video_url: z.string().url().describe("Public URL of the video to summarize"),
+        video_url: mediaInput("Public URL or local file path of the video to summarize"),
         style: z
           .enum(["brief", "standard", "detailed"])
           .default("standard")
@@ -133,7 +148,7 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
       description:
         "Extract and transcribe visible text or speech from a video (on-screen text, captions, speech, slide text).",
       inputSchema: {
-        video_url: z.string().url().describe("Public URL of the video"),
+        video_url: mediaInput("Public URL or local file path of the video"),
       },
     },
     async (args) => mediaCall(cfg, "video", args.video_url, TEXT_EXTRACTION_PROMPT, 1024),
@@ -144,7 +159,7 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
     {
       description: "Ask a specific question about a video's content.",
       inputSchema: {
-        video_url: z.string().url().describe("Public URL of the video"),
+        video_url: mediaInput("Public URL or local file path of the video"),
         question: z.string().describe("Your specific question about the video"),
       },
     },
@@ -157,7 +172,7 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
       description:
         "Analyze changes and progression across a video (before/after, movement, progression of events).",
       inputSchema: {
-        video_url: z.string().url().describe("Public URL of the video"),
+        video_url: mediaInput("Public URL or local file path of the video"),
         comparison_prompt: z
           .string()
           .default(DEFAULT_COMPARE_PROMPT)
@@ -214,7 +229,8 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
               image: ["jpg", "jpeg", "png", "gif", "webp", "bmp"],
             },
             notes: [
-              "Media must be reachable via public http/https URL",
+              "Media: public http/https URL or local file path (local files are sent inline as base64 data URLs)",
+              "Local file size guardrail: 25MB; larger files must be hosted at a public URL",
               "Video frame sampling is handled by Bailian server-side (fixed 0.5s/frame on OpenAI-compatible mode)",
             ],
           },

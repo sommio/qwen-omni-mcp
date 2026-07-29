@@ -1,6 +1,9 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -191,6 +194,101 @@ describe("MCP tool wiring (in-memory e2e)", () => {
       const parsed = JSON.parse(textOf(r)) as { model: string; capabilities: string[] };
       expect(parsed.model).toBe("qwen3.7-plus");
       expect(parsed.capabilities).toContain("Video understanding (native, no frame extraction)");
+    });
+  });
+});
+
+function mediaUrlOf(body: Record<string, unknown>): string {
+  const messages = (
+    body as {
+      messages?: { content?: { image_url?: { url?: string }; video_url?: { url?: string } }[] }[];
+    }
+  ).messages;
+  const blocks = messages?.[0]?.content ?? [];
+  const block = blocks.find((b) => b.image_url || b.video_url);
+  return (block?.image_url ?? block?.video_url)?.url ?? "";
+}
+
+describe("local file path support", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "qwen-tools-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("sends a local image as a base64 data URL", async () => {
+    const cap = mockCapture();
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const p = join(dir, "pic.jpg");
+    await writeFile(p, bytes);
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_image",
+        arguments: { image_url: p, question: "q" },
+      });
+      expect(textOf(r)).toBe("answer");
+    });
+    expect(mediaUrlOf(await cap.body())).toBe(`data:image/jpeg;base64,${bytes.toString("base64")}`);
+  });
+
+  it("sends a local video as a base64 data URL", async () => {
+    const cap = mockCapture();
+    // 12-byte MP4 ftyp box header: size(4) + "ftyp" + "mp42".
+    const bytes = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32,
+    ]);
+    const p = join(dir, "clip.mp4");
+    await writeFile(p, bytes);
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_video",
+        arguments: { video_url: p, question: "q" },
+      });
+      expect(textOf(r)).toBe("answer");
+    });
+    expect(mediaUrlOf(await cap.body())).toBe(`data:video/mp4;base64,${bytes.toString("base64")}`);
+  });
+
+  it("passes a public URL through unchanged for a video tool", async () => {
+    const cap = mockCapture();
+    await withClient(async (client) => {
+      await client.callTool({
+        name: "summarize_video",
+        arguments: { video_url: "https://example.com/v.mp4", style: "brief" },
+      });
+    });
+    expect(mediaUrlOf(await cap.body())).toBe("https://example.com/v.mp4");
+  });
+
+  it("returns an isError result for a missing local file", async () => {
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_image",
+        arguments: { image_url: join(dir, "nope.jpg") },
+      });
+      expect(r.isError).toBe(true);
+      expect(textOf(r)).toContain("Cannot read local file");
+    });
+  });
+
+  it("refuses to exfiltrate a non-media local file", async () => {
+    const p = join(dir, "secret.env");
+    const secret = "internal-secret-do-not-exfil-42";
+    await writeFile(p, `DASHSCOPE_API_KEY=${secret}`);
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_image",
+        arguments: { image_url: p },
+      });
+      expect(r.isError).toBe(true);
+      const text = textOf(r);
+      expect(text).toContain("unsupported extension");
+      // The file is rejected before being read, so its contents never leave.
+      expect(text).not.toContain(secret);
     });
   });
 });
