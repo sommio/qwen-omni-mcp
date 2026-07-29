@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_BASE_URL, DEFAULT_MODEL, loadConfig, redactKey } from "../src/config.js";
+import {
+  DEFAULT_BASE_URL,
+  DEFAULT_MODEL,
+  DEFAULT_OMNI_MODEL,
+  loadConfig,
+  redactKey,
+} from "../src/config.js";
 
 const ORIG_ENV = { ...process.env };
 
@@ -10,12 +16,14 @@ afterEach(() => {
 describe("loadConfig", () => {
   it("applies defaults when only the API key is set", () => {
     delete process.env.QWEN_MODEL;
+    delete process.env.QWEN_OMNI_MODEL;
     delete process.env.DASHSCOPE_BASE_URL;
     delete process.env.QWEN_REQUEST_TIMEOUT;
     process.env.DASHSCOPE_API_KEY = "sk-test";
     const cfg = loadConfig();
     expect(cfg.apiKey).toBe("sk-test");
     expect(cfg.model).toBe(DEFAULT_MODEL);
+    expect(cfg.omniModel).toBe(DEFAULT_OMNI_MODEL);
     expect(cfg.baseUrl).toBe(DEFAULT_BASE_URL);
     expect(cfg.timeoutMs).toBe(300_000);
   });
@@ -23,11 +31,13 @@ describe("loadConfig", () => {
   it("respects environment overrides", () => {
     process.env.DASHSCOPE_API_KEY = "k";
     process.env.QWEN_MODEL = "qwen-vl-max-latest";
+    process.env.QWEN_OMNI_MODEL = "qwen3-omni-flash";
     process.env.DASHSCOPE_BASE_URL = "https://example.test/v1";
     process.env.QWEN_REQUEST_TIMEOUT = "60";
     expect(loadConfig()).toEqual({
       apiKey: "k",
       model: "qwen-vl-max-latest",
+      omniModel: "qwen3-omni-flash",
       baseUrl: "https://example.test/v1",
       timeoutMs: 60_000,
     });

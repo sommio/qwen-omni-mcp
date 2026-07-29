@@ -33,6 +33,20 @@ const VIDEO_MIME: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Audio format strings for the DashScope `input_audio.format` field. Keys are
+ * lowercased extensions. Values follow the OpenAI-compatible format vocabulary
+ * (mp3/wav/flac/ogg/aac); m4a is an AAC container so it maps to "aac".
+ */
+const AUDIO_FORMAT: Readonly<Record<string, string>> = {
+  ".mp3": "mp3",
+  ".wav": "wav",
+  ".flac": "flac",
+  ".ogg": "ogg",
+  ".m4a": "aac",
+  ".aac": "aac",
+};
+
+/**
  * MIME type for a known media extension, or `undefined` for unknown / missing
  * extensions. Returning `undefined` (rather than a defaulted media MIME) lets
  * `toDataUrl` reject non-media files like `.env`, `id_rsa`, or `/etc/passwd`
@@ -42,6 +56,16 @@ export function mimeFromExt(path: string, kind: MediaKind): string | undefined {
   const ext = extname(path).toLowerCase();
   const table = kind === "video" ? VIDEO_MIME : IMAGE_MIME;
   return table[ext];
+}
+
+/**
+ * DashScope `input_audio.format` value for a known audio extension, or
+ * `undefined` for unknown/missing extensions so non-audio files are rejected
+ * before being read.
+ */
+export function audioFormatFromExt(path: string): string | undefined {
+  const ext = extname(path).toLowerCase();
+  return AUDIO_FORMAT[ext];
 }
 
 /**
@@ -77,6 +101,9 @@ function matchesMediaSignature(buffer: Buffer, kind: MediaKind): boolean {
       (buffer[0] === 0x42 && buffer[1] === 0x4d) // BMP
     );
   }
+  if (kind === "audio") {
+    return matchesAudioSignature(buffer);
+  }
   return (
     fourcc(buffer, 4) === "ftyp" || // MP4 / MOV
     fourcc(buffer, 4) === "moov" ||
@@ -84,6 +111,30 @@ function matchesMediaSignature(buffer: Buffer, kind: MediaKind): boolean {
     (buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) || // WebM / MKV (EBML)
     (fourcc(buffer, 0) === "RIFF" && fourcc(buffer, 8) === "AVI ") // AVI
   );
+}
+
+/**
+ * Whether a buffer starts with a known audio signature. Guards against renamed
+ * non-audio files (e.g. a text secret renamed to `clip.mp3`) being base64-encoded
+ * and shipped to DashScope. Supports mp3 (ID3 or MPEG frame sync), wav (RIFF/WAVE),
+ * flac, ogg, and AAC/M4A (ftyp box). Verified live for mp3/wav.
+ */
+function matchesAudioSignature(buffer: Buffer): boolean {
+  if (buffer.length < 4) return false;
+  // ID3 tag (mp3): bytes "ID3" (0x49 0x44 0x33) followed by a version byte.
+  if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return true;
+  // MPEG audio frame sync: 0xFF + upper 3 bits of next byte set (0xE0 mask).
+  if (buffer[0] === 0xff && buffer[1] !== undefined && (buffer[1] & 0xe0) === 0xe0) return true;
+  // RIFF/WAVE (wav)
+  if (fourcc(buffer, 0) === "RIFF" && buffer.length >= 12 && fourcc(buffer, 8) === "WAVE")
+    return true;
+  // fLaC (flac)
+  if (fourcc(buffer, 0) === "fLaC") return true;
+  // OggS (ogg)
+  if (fourcc(buffer, 0) === "OggS") return true;
+  // ftyp box at offset 4 (m4a / aac container)
+  if (buffer.length >= 8 && fourcc(buffer, 4) === "ftyp") return true;
+  return false;
 }
 
 /** Read a local file and encode it as a `data:` URL for inline transport. */
@@ -135,4 +186,66 @@ export async function resolveMedia(raw: string, kind: MediaKind): Promise<string
     return raw;
   }
   return toDataUrl(raw, kind);
+}
+
+/**
+ * Read a local audio file and encode it for the DashScope `input_audio.data`
+ * field as `data:;base64,<b64>` (the form DashScope accepts; raw base64 is
+ * rejected). Validates extension + magic-byte signature + 25MB guardrail first.
+ */
+async function toAudioData(path: string): Promise<string> {
+  let info: Stats;
+  try {
+    info = await stat(path);
+  } catch (err) {
+    throw new Error(`Cannot read local file: ${path}`, { cause: err });
+  }
+  if (!info.isFile()) {
+    throw new Error(`Local path is not a file: ${path}`);
+  }
+  if (info.size === 0) {
+    throw new Error(`Local file is empty: ${path}`);
+  }
+  if (info.size > MAX_LOCAL_FILE_BYTES) {
+    throw new Error(overLimitMessage(info.size, path));
+  }
+  const format = audioFormatFromExt(path);
+  if (format === undefined) {
+    throw new Error(`Local file has an unsupported extension for audio input: ${path}`);
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = await readFile(path);
+  } catch (err) {
+    throw new Error(`Cannot read local file: ${path}`, { cause: err });
+  }
+  if (buffer.length > MAX_LOCAL_FILE_BYTES) {
+    throw new Error(overLimitMessage(buffer.length, path));
+  }
+  if (!matchesAudioSignature(buffer)) {
+    throw new Error(`Local file does not appear to be a valid audio file: ${path}`);
+  }
+  return `data:;base64,${buffer.toString("base64")}`;
+}
+
+/**
+ * Resolve an audio input for the `input_audio` content block: returns the
+ * `data` value (remote URL passes through; local path becomes a
+ * `data:;base64,<b64>` data URL) plus the codec `format` string.
+ */
+export async function resolveAudio(raw: string): Promise<{ data: string; format: string }> {
+  if (isRemoteUrl(raw)) {
+    const format = audioFormatFromExt(raw);
+    if (format === undefined) {
+      throw new Error(`Remote audio URL has an unsupported extension: ${raw}`);
+    }
+    return { data: raw, format };
+  }
+  const format = audioFormatFromExt(raw);
+  if (format === undefined) {
+    throw new Error(`Local file has an unsupported extension for audio input: ${raw}`);
+  }
+  const data = await toAudioData(raw);
+  return { data, format };
 }

@@ -8,6 +8,7 @@ import {
   isRemoteUrl,
   MAX_LOCAL_FILE_BYTES,
   mimeFromExt,
+  resolveAudio,
   resolveMedia,
   toDataUrl,
 } from "../src/media.js";
@@ -214,5 +215,74 @@ describe("resolveMedia", () => {
     await expect(resolveMedia(join(dir, "missing.mp4"), "video")).rejects.toThrow(
       /Cannot read local file/,
     );
+  });
+});
+
+describe("resolveAudio", () => {
+  it("passes a remote URL through with its format", async () => {
+    const url = "https://example.com/path/clip.mp3";
+    expect(await resolveAudio(url)).toEqual({ data: url, format: "mp3" });
+  });
+
+  it("rejects a remote URL with an unsupported extension", async () => {
+    await expect(resolveAudio("https://example.com/clip.txt")).rejects.toThrow(
+      /unsupported extension/,
+    );
+  });
+
+  it("encodes a local mp3 (ID3) as data:;base64, and keeps the format", async () => {
+    const bytes = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]); // "ID3..."
+    const p = join(dir, "clip.mp3");
+    await writeFile(p, bytes);
+    expect(await resolveAudio(p)).toEqual({
+      data: `data:;base64,${bytes.toString("base64")}`,
+      format: "mp3",
+    });
+  });
+
+  it("encodes a local wav (RIFF/WAVE) as data:;base64,", async () => {
+    const bytes = Buffer.from([
+      0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
+    ]); // RIFF....WAVE
+    const p = join(dir, "clip.wav");
+    await writeFile(p, bytes);
+    expect(await resolveAudio(p)).toEqual({
+      data: `data:;base64,${bytes.toString("base64")}`,
+      format: "wav",
+    });
+  });
+
+  it("accepts an MPEG-frame-sync mp3 (no ID3 tag)", async () => {
+    const bytes = Buffer.from([0xff, 0xfb, 0x90, 0x00]); // 0xFF 0xFB = MPEG-1 Layer III
+    const p = join(dir, "nosync.mp3");
+    await writeFile(p, bytes);
+    const r = await resolveAudio(p);
+    expect(r.format).toBe("mp3");
+    expect(r.data).toMatch(/^data:;base64,/);
+  });
+
+  it("rejects a non-audio local file before encoding its contents", async () => {
+    const p = join(dir, "secret.mp3");
+    const secret = "internal-secret-do-not-exfil-99";
+    await writeFile(p, `DASHSCOPE_API_KEY=${secret}`);
+    await expect(resolveAudio(p)).rejects.toThrow(/does not appear to be a valid audio/);
+    // contents never leave: the rejection message is about the signature, not the body
+    const r = await resolveAudio(p).catch((e: unknown) => String(e));
+    expect(r).not.toContain(secret);
+  });
+
+  it("rejects an unsupported audio extension before reading", async () => {
+    const p = join(dir, "clip.env");
+    await writeFile(p, "nope");
+    await expect(resolveAudio(p)).rejects.toThrow(/unsupported extension/);
+  });
+
+  it("rejects a file larger than the guardrail", async () => {
+    const p = join(dir, "big.mp3");
+    await writeFile(p, Buffer.from([0x49, 0x44, 0x33]));
+    const handle = await open(p, "r+");
+    await handle.truncate(MAX_LOCAL_FILE_BYTES + 1);
+    await handle.close();
+    await expect(resolveAudio(p)).rejects.toThrow(/exceeds the/);
   });
 });
