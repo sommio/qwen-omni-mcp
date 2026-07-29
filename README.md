@@ -41,7 +41,7 @@ All config is via environment variables (loaded from `.env` by `dotenv`):
 | `DASHSCOPE_BASE_URL`   | no       | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI-compatible endpoint     |
 | `QWEN_REQUEST_TIMEOUT` | no       | `300`                                               | Per-request timeout in seconds |
 
-Get a key at <https://platform.qianwenai.com/home/api-keys>.
+Get a key at <https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key>.
 
 > The Anthropic-compatible `/apps/anthropic` endpoint does **not** support video input, so this server uses the OpenAI-compatible endpoint.
 
