@@ -13,14 +13,18 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["eslint.config.js", "scripts/check-secrets.mjs"],
+          allowDefaultProject: [
+            "eslint.config.js",
+            "lint-staged.config.js",
+            "scripts/check-secrets.mjs",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
     },
   },
   {
-    files: ["scripts/**/*.mjs", "eslint.config.js"],
+    files: ["scripts/**/*.mjs", "eslint.config.js", "lint-staged.config.js"],
     languageOptions: {
       globals: {
         console: "readonly",
