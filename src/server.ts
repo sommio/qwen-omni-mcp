@@ -7,13 +7,15 @@ import {
   redactKey,
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
+  DEFAULT_OMNI_MODEL,
   DEFAULT_TIMEOUT_SECONDS,
 } from "./config.js";
 import { analyze, BailianError, type MediaKind } from "./bailian.js";
-import { isRemoteUrl, isLocalPath, resolveMedia } from "./media.js";
+import { isRemoteUrl, isLocalPath, resolveMedia, resolveAudio } from "./media.js";
 
 const MAX_TOKENS_DEFAULT_VIDEO = 1024;
 const MAX_TOKENS_DEFAULT_IMAGE = 512;
+const MAX_TOKENS_DEFAULT_AUDIO = 1024;
 
 /**
  * Accepts either a public http/https URL or a local file path. Remote URLs are
@@ -61,10 +63,51 @@ async function mediaCall(
   }
 }
 
+/**
+ * Omni media call: routes audio through `resolveAudio` (returns `{data,format}`
+ * for the `input_audio` block) and video through `resolveMedia`. Uses the omni
+ * model and forces text-only output via `modalities: ["text"]`.
+ */
+async function omniMediaCall(
+  cfg: AppConfig,
+  kind: "audio" | "video",
+  input: string,
+  prompt: string,
+  maxTokens: number,
+): Promise<CallToolResult> {
+  try {
+    if (kind === "audio") {
+      const { data, format } = await resolveAudio(input);
+      const result = await analyze(cfg, {
+        kind: "audio",
+        url: data,
+        audioFormat: format,
+        prompt,
+        maxTokens,
+        model: cfg.omniModel,
+        modalities: ["text"],
+      });
+      return ok(result.answer);
+    }
+    const resolved = await resolveMedia(input, "video");
+    const result = await analyze(cfg, {
+      kind: "video",
+      url: resolved,
+      prompt,
+      maxTokens,
+      model: cfg.omniModel,
+      modalities: ["text"],
+    });
+    return ok(result.answer);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export function createServer(cfg: AppConfig = loadConfig()): McpServer {
   const server = new McpServer({
     name: "qwen-omni-mcp",
-    version: "0.1.0",
+    version: "0.3.0",
   });
 
   server.registerTool(
@@ -112,6 +155,50 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
   );
 
   server.registerTool(
+    "analyze_audio",
+    {
+      description:
+        "Analyze an audio file using Qwen3.5-Omni (qwen3.5-omni-plus, native audio understanding). Pass a public URL (http/https) or a local file path; local files are sent inline as base64 (25MB guardrail, mp3/wav/flac/ogg/m4a/aac).",
+      inputSchema: {
+        audio_url: mediaInput("Public URL or local file path of the audio to analyze"),
+        question: z
+          .string()
+          .default("What is this audio about? Describe it in detail.")
+          .describe("Question or prompt about the audio"),
+        max_tokens: z
+          .number()
+          .int()
+          .positive()
+          .default(MAX_TOKENS_DEFAULT_AUDIO)
+          .describe("Maximum tokens in the response"),
+      },
+    },
+    async (args) => omniMediaCall(cfg, "audio", args.audio_url, args.question, args.max_tokens),
+  );
+
+  server.registerTool(
+    "analyze_audio_video",
+    {
+      description:
+        "Analyze a video (including its audio track) using Qwen3.5-Omni (qwen3.5-omni-plus, native audio+video understanding). Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
+      inputSchema: {
+        video_url: mediaInput("Public URL or local file path of the video to analyze"),
+        question: z
+          .string()
+          .default("Describe what happens in this video, including the visuals and the sound.")
+          .describe("Question or prompt about the video"),
+        max_tokens: z
+          .number()
+          .int()
+          .positive()
+          .default(MAX_TOKENS_DEFAULT_VIDEO)
+          .describe("Maximum tokens in the response"),
+      },
+    },
+    async (args) => omniMediaCall(cfg, "video", args.video_url, args.question, args.max_tokens),
+  );
+
+  server.registerTool(
     "check_endpoint_status",
     {
       description:
@@ -124,6 +211,7 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
             status: "configured",
             base_url: cfg.baseUrl,
             model: cfg.model,
+            omni_model: cfg.omniModel,
             api_key: redactKey(cfg.apiKey),
             timeout_seconds: cfg.timeoutMs / 1000,
           },
@@ -136,4 +224,4 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
   return server;
 }
 
-export { loadConfig, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_TIMEOUT_SECONDS };
+export { loadConfig, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_OMNI_MODEL, DEFAULT_TIMEOUT_SECONDS };

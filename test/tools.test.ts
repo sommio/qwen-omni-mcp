@@ -14,6 +14,7 @@ const SECRET_KEY = "sk-secret-key-1234567890"; // gitleaks:allow — dummy test 
 const cfg: AppConfig = {
   apiKey: SECRET_KEY,
   model: "qwen3.7-plus",
+  omniModel: "qwen3.5-omni-plus",
   baseUrl: "https://dashscope.test/v1",
   timeoutMs: 5_000,
 };
@@ -75,11 +76,17 @@ function textOf(result: unknown): string {
 }
 
 describe("MCP tool wiring (in-memory e2e)", () => {
-  it("exposes all 3 tools", async () => {
+  it("exposes all 5 tools", async () => {
     await withClient(async (client) => {
       const { tools } = await client.listTools();
       expect(tools.map((t) => t.name).sort()).toEqual(
-        ["analyze_image", "analyze_video", "check_endpoint_status"].sort(),
+        [
+          "analyze_audio",
+          "analyze_audio_video",
+          "analyze_image",
+          "analyze_video",
+          "check_endpoint_status",
+        ].sort(),
       );
     });
   });
@@ -130,6 +137,57 @@ describe("MCP tool wiring (in-memory e2e)", () => {
       expect(text).not.toContain(SECRET_KEY);
       expect(text).toContain("sk-s…7890");
       expect(text).toContain("qwen3.7-plus");
+      expect(text).toContain("qwen3.5-omni-plus");
+    });
+  });
+
+  it("analyze_audio sends an input_audio block + modalities:text + omni model", async () => {
+    const cap = mockCapture();
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_audio",
+        arguments: { audio_url: "https://example.com/a.mp3", question: "what" },
+      });
+      expect(textOf(r)).toBe("answer");
+    });
+    const body = await cap.body();
+    const content = (body.messages as { content: unknown[] }[])[0]!.content;
+    expect(content[1]).toEqual({
+      type: "input_audio",
+      input_audio: { data: "https://example.com/a.mp3", format: "mp3" },
+    });
+    expect(body.model).toBe("qwen3.5-omni-plus");
+    expect(body.modalities).toEqual(["text"]);
+  });
+
+  it("analyze_audio_video sends a video_url block + omni model", async () => {
+    const cap = mockCapture();
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_audio_video",
+        arguments: { video_url: "https://example.com/v.mp4" },
+      });
+      expect(textOf(r)).toBe("answer");
+    });
+    const body = await cap.body();
+    const content = (body.messages as { content: unknown[] }[])[0]!.content;
+    expect(content[1]).toEqual({
+      type: "video_url",
+      video_url: { url: "https://example.com/v.mp4" },
+    });
+    expect(body.model).toBe("qwen3.5-omni-plus");
+    expect(body.modalities).toEqual(["text"]);
+  });
+
+  it("analyze_audio maps a backend 500 to an isError result", async () => {
+    server.use(http.post(endpoint, () => new HttpResponse(null, { status: 500 })));
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_audio",
+        arguments: { audio_url: "https://example.com/a.mp3" },
+      });
+      expect(r.isError).toBe(true);
+      expect(textOf(r)).toContain("HTTP 500");
     });
   });
 });
@@ -224,6 +282,43 @@ describe("local file path support", () => {
       const text = textOf(r);
       expect(text).toContain("unsupported extension");
       // The file is rejected before being read, so its contents never leave.
+      expect(text).not.toContain(secret);
+    });
+  });
+
+  it("sends a local audio as a data:;base64, input_audio block", async () => {
+    const cap = mockCapture();
+    const bytes = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]); // ID3 mp3
+    const p = join(dir, "clip.mp3");
+    await writeFile(p, bytes);
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_audio",
+        arguments: { audio_url: p, question: "q" },
+      });
+      expect(textOf(r)).toBe("answer");
+    });
+    const body = await cap.body();
+    const content = (body.messages as { content: unknown[] }[])[0]!.content;
+    expect(content[1]).toEqual({
+      type: "input_audio",
+      input_audio: { data: `data:;base64,${bytes.toString("base64")}`, format: "mp3" },
+    });
+    expect(body.model).toBe("qwen3.5-omni-plus");
+  });
+
+  it("refuses to exfiltrate a non-audio local file via analyze_audio", async () => {
+    const p = join(dir, "fake.mp3");
+    const secret = "internal-secret-do-not-exfil-audio-7";
+    await writeFile(p, secret);
+    await withClient(async (client) => {
+      const r = await client.callTool({
+        name: "analyze_audio",
+        arguments: { audio_url: p },
+      });
+      expect(r.isError).toBe(true);
+      const text = textOf(r);
+      expect(text).toContain("does not appear to be a valid audio");
       expect(text).not.toContain(secret);
     });
   });

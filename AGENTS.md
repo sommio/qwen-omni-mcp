@@ -33,20 +33,21 @@ CI runs the same on Node 20 and 22. Local green ≠ CI green if you skip a step.
 
 - **TypeScript strict.** No `any` in `src/` (allowed sparingly in `test/` for fixture typing). No `@ts-ignore`. No non-null assertions in `src/`.
 - Prefer narrow types and `unknown` over `any` when parsing external JSON (see `src/bailian.ts`).
-- The DashScope payload builder (`buildPayload`) is intentionally injectable — if the `video_url`/`image_url` content block shape changes, change it in one place.
+- The DashScope payload builder (`buildPayload`) is intentionally injectable — if the `video_url`/`image_url`/`input_audio` content block shape changes, change it in one place (`contentBlock` / `audioBlock` in `src/bailian.ts`).
 - Do not add a new runtime, language, or heavy dependency without explicit maintainer approval.
 - Match existing style; let `prettier` and `eslint --fix` handle formatting.
 
 ## Tool surface
 
-The server exposes 3 MCP tools (see `src/server.ts`): `analyze_video`, `analyze_image`, `check_endpoint_status`. Do not silently change a tool's name or argument schema — that breaks MCP clients. Add new tools rather than renaming.
+The server exposes 5 MCP tools (see `src/server.ts`): `analyze_video`, `analyze_image`, `analyze_audio`, `analyze_audio_video`, `check_endpoint_status`. Do not silently change a tool's name or argument schema — that breaks MCP clients. Add new tools rather than renaming.
 
 `check_endpoint_status` must redact the API key (`redactKey`). There is a test asserting no key leaks — keep it passing.
 
 ## Backend
 
 - Endpoint: Bailian (DashScope) OpenAI-compatible mode, `${DASHSCOPE_BASE_URL}/chat/completions` (default `https://dashscope.aliyuncs.com/compatible-mode/v1`).
-- Model: `qwen3.7-plus` (multimodal, native video — **no client-side frame extraction**).
+- Model: `qwen3.7-plus` (multimodal, native video — **no client-side frame extraction**) for `analyze_video`/`analyze_image`.
+- Omni model: `qwen3.5-omni-plus` (native audio + audio-video understanding) for `analyze_audio`/`analyze_audio_video`, configured via `QWEN_OMNI_MODEL`. Omni calls send `modalities: ["text"]` to force text-only output (no voice blob).
 - The Anthropic-compatible `/apps/anthropic` endpoint does NOT support video input. Do not switch to it for multimodal tools.
 - Video frame sampling is server-side (fixed 0.5s/frame on OpenAI-compatible mode). Do not add frame extraction logic.
 
@@ -64,5 +65,8 @@ The server exposes 3 MCP tools (see `src/server.ts`): `analyze_video`, `analyze_
 ## Fragile assumptions (verify before relying on)
 
 1. The OpenAI-compatible endpoint accepts a `video_url` content block for `qwen3.7-plus`. If a live call rejects it, the fallback is the native DashScope `video` content type or switching to `qwen-vl-max-latest`. Change `contentBlock()` in `src/bailian.ts`.
-2. The exact model id string `qwen3.7-plus`. Verify against the Bailian model list if a call returns a model-not-found error.
-3. Local files up to the 25MB guardrail in `src/media.ts` can be sent as base64 data URLs — verified live (14MB video / ~18MB body, HTTP 200 on `qwen3.7-plus` OpenAI-compatible mode). Larger files must be hosted at a public URL. Local input is validated by extension + magic-byte signature before encoding (see `toDataUrl`).
+2. The exact model id strings `qwen3.7-plus` and `qwen3.5-omni-plus`. Verify against the Bailian model list if a call returns a model-not-found error.
+3. Local files up to the 25MB guardrail in `src/media.ts` can be sent as base64 data URLs — verified live (14MB video / ~18MB body, HTTP 200 on `qwen3.7-plus` OpenAI-compatible mode; 8.8MB video / ~11.7MB base64 body, HTTP 200 on `qwen3.5-omni-plus`). Larger files must be hosted at a public URL. Local input is validated by extension + magic-byte signature before encoding (see `toDataUrl` / `toAudioData`).
+4. **Qwen-Omni `stream=True` is NOT mandatory.** The official doc claims all Qwen-Omni requests must set `stream=True`, but live testing shows non-streaming calls succeed (text/audio/video, HTTP 200 + JSON). The omni tools therefore reuse the same non-streaming `analyze` path as `qwen3.7-plus`. If a future endpoint revision starts rejecting non-stream omni calls, add a streaming variant in `src/bailian.ts` and route omni tools through it.
+5. **`input_audio.data` must be `data:;base64,<b64>` + `format`, not raw base64.** Raw base64 is rejected with `"The provided URL does not appear to be valid"`. Verified live for mp3/wav. If other formats (flac/ogg/m4a/aac) are rejected, change `toAudioData()` in `src/media.ts` (e.g. to a full `data:audio/<fmt>;base64,` data URL) — single point of change, no tool-schema impact.
+6. The default `dashscope.aliyuncs.com/compatible-mode/v1` endpoint serves `qwen3.5-omni-plus` (verified live). No workspace-specific MaaS URL is needed. If a future key/region rejects omni, add an optional `QWEN_OMNI_BASE_URL` env and route omni calls through it.

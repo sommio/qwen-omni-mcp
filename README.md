@@ -1,15 +1,16 @@
 # qwen-omni-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video and image understanding** via [Bailian (DashScope)](https://bailian.console.aliyun.com/) using the multimodal **Qwen3.7-Plus** model.
+An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video, image, audio, and audio-video understanding** via [Bailian (DashScope)](https://bailian.console.aliyun.com/) using the multimodal **Qwen3.7-Plus** and **Qwen3.5-Omni** models.
 
-Qwen3.7-Plus reads video natively — **no client-side frame extraction**. Pass a public media URL **or a local file path**; the model does the rest.
+Qwen3.7-Plus reads video natively — **no client-side frame extraction**. Qwen3.5-Omni adds native **audio** understanding (and audio-track awareness for video). Pass a public media URL **or a local file path**; the model does the rest.
 
 ## Highlights
 
 - **Native video understanding** — send a video URL or local file, get grounded analysis
 - **Image understanding** — describe, Q&A, OCR
-- **Local file support** — pass a local path; files are sent inline as base64 data URLs (25MB guardrail)
-- **Convenience tools** — summarize, text extraction, frame comparison, Q&A
+- **Audio understanding** — transcribe, summarize, analyze speech/sound (mp3/wav/flac/ogg/m4a/aac)
+- **Audio-video understanding** — analyze a video's visuals **and** its sound track together
+- **Local file support** — pass a local path; files are sent inline as base64 (25MB guardrail)
 - **npx-launchable** — one line in your MCP client config
 
 ## Install
@@ -34,12 +35,13 @@ npm run dev            # run from source via tsx
 
 All config is via environment variables (loaded from `.env` by `dotenv`):
 
-| Variable               | Required | Default                                             | Description                    |
-| ---------------------- | -------- | --------------------------------------------------- | ------------------------------ |
-| `DASHSCOPE_API_KEY`    | yes      | —                                                   | Bailian API key                |
-| `QWEN_MODEL`           | no       | `qwen3.7-plus`                                      | Model id (multimodal)          |
-| `DASHSCOPE_BASE_URL`   | no       | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI-compatible endpoint     |
-| `QWEN_REQUEST_TIMEOUT` | no       | `300`                                               | Per-request timeout in seconds |
+| Variable               | Required | Default                                             | Description                         |
+| ---------------------- | -------- | --------------------------------------------------- | ----------------------------------- |
+| `DASHSCOPE_API_KEY`    | yes      | —                                                   | Bailian API key                     |
+| `QWEN_MODEL`           | no       | `qwen3.7-plus`                                      | Model id for video/image analysis   |
+| `QWEN_OMNI_MODEL`      | no       | `qwen3.5-omni-plus`                                 | Omni model id for audio/audio-video |
+| `DASHSCOPE_BASE_URL`   | no       | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI-compatible endpoint          |
+| `QWEN_REQUEST_TIMEOUT` | no       | `300`                                               | Per-request timeout in seconds      |
 
 Get a key at <https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key>.
 
@@ -79,13 +81,17 @@ For local development without publishing:
 
 ## Tools
 
-| Tool                    | Description                                               |
-| ----------------------- | --------------------------------------------------------- |
-| `analyze_video`         | Analyze a video (URL or local file) with a custom prompt  |
-| `analyze_image`         | Analyze an image (URL or local file) with a custom prompt |
-| `check_endpoint_status` | Show configured endpoint/model (key redacted)             |
+| Tool                    | Description                                                           |
+| ----------------------- | --------------------------------------------------------------------- |
+| `analyze_video`         | Analyze a video (URL or local file) with a custom prompt              |
+| `analyze_image`         | Analyze an image (URL or local file) with a custom prompt             |
+| `analyze_audio`         | Analyze an audio file (URL or local) with a custom prompt (Omni)      |
+| `analyze_audio_video`   | Analyze a video's visuals + sound (URL or local) with a prompt (Omni) |
+| `check_endpoint_status` | Show configured endpoint/model (key redacted)                         |
 
-Each media tool accepts a public `http`/`https` URL **or a local file path**. Local files are read and sent inline as base64 data URLs, with a 25MB guardrail (verified up to a 14MB video / ~18MB body, HTTP 200). Files larger than 25MB must be hosted at a public URL instead. Local input is validated by extension + magic-byte signature before encoding, so non-media files are rejected.
+Each media tool accepts a public `http`/`https` URL **or a local file path**. Local files are read and sent inline as base64, with a 25MB guardrail (verified up to a 14MB video / ~18MB body on Qwen3.7-Plus, and an 8.8MB video / ~11.7MB base64 body on Qwen3.5-Omni, both HTTP 200). Files larger than 25MB must be hosted at a public URL instead. Local input is validated by extension + magic-byte signature before encoding, so non-media files are rejected.
+
+`analyze_audio` / `analyze_audio_video` use the omni model (`QWEN_OMNI_MODEL`, default `qwen3.5-omni-plus`) and force text-only output. Audio is sent as an `input_audio` block in the `data:;base64,<b64>` form with a `format` field (mp3/wav/flac/ogg/m4a/aac).
 
 ## Development
 

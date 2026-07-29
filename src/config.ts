@@ -3,11 +3,15 @@ import "dotenv/config";
 export interface AppConfig {
   apiKey: string;
   model: string;
+  omniModel: string;
   baseUrl: string;
   timeoutMs: number;
 }
 
+/** Multimodal model for video/image analysis (text+image+video, no audio). */
 export const DEFAULT_MODEL = "qwen3.7-plus";
+/** Omni model for audio and audio-video analysis (native audio understanding). */
+export const DEFAULT_OMNI_MODEL = "qwen3.5-omni-plus";
 export const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 
@@ -37,6 +41,7 @@ export function loadConfig(): AppConfig {
   return {
     apiKey: required("DASHSCOPE_API_KEY"),
     model: process.env.QWEN_MODEL?.trim() || DEFAULT_MODEL,
+    omniModel: process.env.QWEN_OMNI_MODEL?.trim() || DEFAULT_OMNI_MODEL,
     baseUrl: process.env.DASHSCOPE_BASE_URL?.trim() || DEFAULT_BASE_URL,
     timeoutMs: positiveInt("QWEN_REQUEST_TIMEOUT", DEFAULT_TIMEOUT_SECONDS) * 1000,
   };

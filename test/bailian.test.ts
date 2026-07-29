@@ -7,6 +7,7 @@ import { analyze, buildPayload, BailianError } from "../src/bailian.js";
 const cfg: AppConfig = {
   apiKey: "sk-test",
   model: "qwen3.7-plus",
+  omniModel: "qwen3.5-omni-plus",
   baseUrl: "https://dashscope.test/v1",
   timeoutMs: 5_000,
 };
@@ -51,6 +52,38 @@ describe("buildPayload", () => {
     });
     const content = (p as { messages: { content: unknown[] }[] }).messages[0]!.content;
     expect(content[1]).toEqual({ type: "image_url", image_url: { url: "https://v/i.png" } });
+  });
+
+  it("builds an input_audio block with data + format for audio", () => {
+    const p = buildPayload(cfg, {
+      kind: "audio",
+      url: "data:;base64,AAAA",
+      audioFormat: "mp3",
+      prompt: "p",
+      maxTokens: 10,
+      model: cfg.omniModel,
+      modalities: ["text"],
+    });
+    const content = (p as { messages: { content: unknown[] }[] }).messages[0]!.content;
+    expect(content[1]).toEqual({
+      type: "input_audio",
+      input_audio: { data: "data:;base64,AAAA", format: "mp3" },
+    });
+    expect(p).toMatchObject({
+      model: "qwen3.5-omni-plus",
+      modalities: ["text"],
+    });
+  });
+
+  it("uses cfg.model when params.model is omitted and omits modalities", () => {
+    const p = buildPayload(cfg, {
+      kind: "image",
+      url: "https://v/i.png",
+      prompt: "p",
+      maxTokens: 10,
+    });
+    expect(p).toMatchObject({ model: "qwen3.7-plus" });
+    expect("modalities" in p).toBe(false);
   });
 });
 
