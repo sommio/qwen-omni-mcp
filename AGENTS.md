@@ -65,4 +65,4 @@ The server exposes 8 MCP tools (see `src/server.ts`): `analyze_video`, `analyze_
 
 1. The OpenAI-compatible endpoint accepts a `video_url` content block for `qwen3.7-plus`. If a live call rejects it, the fallback is the native DashScope `video` content type or switching to `qwen-vl-max-latest`. Change `contentBlock()` in `src/bailian.ts`.
 2. The exact model id string `qwen3.7-plus`. Verify against the Bailian model list if a call returns a model-not-found error.
-3. Local video >10MB cannot be sent as a base64 data URL (body too large). Host large local videos at a public URL instead.
+3. Local files up to the 25MB guardrail in `src/media.ts` can be sent as base64 data URLs — verified live (14MB video / ~18MB body, HTTP 200 on `qwen3.7-plus` OpenAI-compatible mode). Larger files must be hosted at a public URL. Local input is validated by extension + magic-byte signature before encoding (see `toDataUrl`).

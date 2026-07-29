@@ -1,18 +1,27 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { analyze } from "../src/bailian.js";
 import { loadConfig } from "../src/config.js";
+import { resolveMedia } from "../src/media.js";
 
 const LIVE = process.env.LIVE === "1" && !!process.env.DASHSCOPE_API_KEY;
-const LOCAL_ASSET_DIR = "/home/sommio/Downloads/test10-v3/cat_dialogue_10/cat_dialogue_000001";
+const LOCAL_ASSET_DIR =
+  process.env.QWEN_LIVE_ASSET_DIR ??
+  "/home/sommio/Downloads/2026-07-08-01-test10_V1_fix1/cat_dialogue_10/cat_dialogue_000001";
 const BUNDLED_SAMPLE = join(import.meta.dirname, "fixtures", "sample.png");
 
+function skipIfMissing(asset: string): boolean {
+  if (existsSync(asset)) return false;
+  console.warn(`[live] local asset missing: ${asset}, skipping.`);
+  return true;
+}
+
 describe.skipIf(!LIVE)("live: Bailian image understanding", () => {
-  it("analyzes a bundled image via base64 data URL (CI-safe)", async () => {
+  it("analyzes a bundled image through resolveMedia (self-contained smoke test)", async () => {
     const cfg = loadConfig();
-    const buf = readFileSync(BUNDLED_SAMPLE);
-    const url = `data:image/png;base64,${buf.toString("base64")}`;
+    const url = await resolveMedia(BUNDLED_SAMPLE, "image");
+    expect(url).toMatch(/^data:image\/png;base64,/);
     const r = await analyze(cfg, {
       kind: "image",
       url,
@@ -22,15 +31,12 @@ describe.skipIf(!LIVE)("live: Bailian image understanding", () => {
     expect(r.answer.length).toBeGreaterThan(0);
   }, 60_000);
 
-  it("analyzes a local cat image (local-only; skipped if asset missing)", async () => {
-    const asset = join(LOCAL_ASSET_DIR, "图1.png");
-    if (!existsSync(asset)) {
-      console.warn(`[live] local asset missing: ${asset}, skipping.`);
-      return;
-    }
+  it("analyzes a local image through resolveMedia (local-only; skipped if asset missing)", async () => {
+    const asset = join(LOCAL_ASSET_DIR, "图1.jpg");
+    if (skipIfMissing(asset)) return;
     const cfg = loadConfig();
-    const buf = readFileSync(asset);
-    const url = `data:image/png;base64,${buf.toString("base64")}`;
+    const url = await resolveMedia(asset, "image");
+    expect(url).toMatch(/^data:image\/jpeg;base64,/);
     const r = await analyze(cfg, {
       kind: "image",
       url,
@@ -42,23 +48,14 @@ describe.skipIf(!LIVE)("live: Bailian image understanding", () => {
 });
 
 describe.skipIf(!LIVE)("live: Bailian video understanding", () => {
-  it("analyzes a local video (local-only; skipped if missing or >10MB — host a public URL instead)", async () => {
+  it("analyzes a local 14MB video through resolveMedia (local-only; skipped if asset missing)", async () => {
     const asset = join(LOCAL_ASSET_DIR, "video.mp4");
-    if (!existsSync(asset)) {
-      console.warn(`[live] local video missing: ${asset}, skipping.`);
-      return;
-    }
+    if (skipIfMissing(asset)) return;
     const cfg = loadConfig();
-    const buf = readFileSync(asset);
-    if (buf.length > 10_000_000) {
-      // 14MB video -> ~19MB base64 body, exceeds typical request limits.
-      // For large local videos, host at a public URL and pass that instead.
-      console.warn(
-        `[live] video is ${String(buf.length)} bytes; too large for base64 data URL, skipping.`,
-      );
-      return;
-    }
-    const url = `data:video/mp4;base64,${buf.toString("base64")}`;
+    // resolveMedia enforces the 25MB guardrail and validates the MP4 magic
+    // bytes before base64-encoding — this exercises the full local-file path.
+    const url = await resolveMedia(asset, "video");
+    expect(url).toMatch(/^data:video\/mp4;base64,/);
     const r = await analyze(cfg, {
       kind: "video",
       url,
@@ -66,5 +63,5 @@ describe.skipIf(!LIVE)("live: Bailian video understanding", () => {
       maxTokens: 256,
     });
     expect(r.answer.length).toBeGreaterThan(0);
-  }, 120_000);
+  }, 180_000);
 });
