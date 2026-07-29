@@ -83,12 +83,7 @@ For local development without publishing:
 | ----------------------- | --------------------------------------------------------- |
 | `analyze_video`         | Analyze a video (URL or local file) with a custom prompt  |
 | `analyze_image`         | Analyze an image (URL or local file) with a custom prompt |
-| `summarize_video`       | Brief / standard / detailed summary                       |
-| `extract_video_text`    | Extract on-screen text and transcribe speech              |
-| `video_qa`              | Ask a specific question about a video                     |
-| `compare_video_frames`  | Analyze changes and progression across a video            |
 | `check_endpoint_status` | Show configured endpoint/model (key redacted)             |
-| `list_capabilities`     | List server capabilities and supported formats            |
 
 Each media tool accepts a public `http`/`https` URL **or a local file path**. Local files are read and sent inline as base64 data URLs, with a 25MB guardrail (verified up to a 14MB video / ~18MB body, HTTP 200). Files larger than 25MB must be hosted at a public URL instead. Local input is validated by extension + magic-byte signature before encoding, so non-media files are rejected.
 
