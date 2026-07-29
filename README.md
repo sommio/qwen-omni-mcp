@@ -1,6 +1,6 @@
 # qwen-omni-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video and image understanding** via [Bailian (DashScope)](https://platform.qianwenai.com) using the multimodal **Qwen3.7-Plus** model.
+An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video and image understanding** via [Bailian (DashScope)](https://bailian.console.aliyun.com/) using the multimodal **Qwen3.7-Plus** model.
 
 Qwen3.7-Plus reads video natively — **no client-side frame extraction**. Pass a public media URL **or a local file path**; the model does the rest.
 
