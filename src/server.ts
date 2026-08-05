@@ -18,6 +18,28 @@ const MAX_TOKENS_DEFAULT_IMAGE = 512;
 const MAX_TOKENS_DEFAULT_AUDIO = 1024;
 
 /**
+ * Server-level instructions returned in the MCP `initialize` result. Hosts
+ * such as Claude Code load these at session start (2KB limit) and pi surfaces
+ * the leading ~150 chars in its mcp tool description — so the first sentence
+ * carries the core positioning. Goal: agents without native media vision
+ * discover these tools when they need to view/read media, while agents whose
+ * model already sees media natively are told to prefer their native path.
+ */
+const SERVER_INSTRUCTIONS = `qwen-omni-mcp gives you eyes and ears: use these tools to VIEW, READ, or understand images, video, and audio whenever you cannot see media natively (e.g., your Read/file tool returns "[Unsupported Image]", or your model is text-only).
+
+Capability-aware routing:
+- If your model natively receives image/video content (the host attaches media for you), prefer your native vision. Use these tools for modalities you cannot process natively (audio, a video's audio track) or whenever native reading fails.
+- If you are text-only, always use these tools for media instead of skipping or guessing.
+
+Tool routing:
+- analyze_image — view/read/describe one image (screenshots, photos, diagrams, charts)
+- analyze_video — what happens in a video (visuals only, native video input)
+- analyze_audio — what is said or heard in an audio file
+- analyze_audio_video — video analysis including its audio track (speech, sound events)
+
+Input: public http/https URL or local file path (local files sent inline as base64, 25MB limit). Optional thinking_budget raises/caps reasoning effort per call. Ask a specific question for best results; the default prompt describes the media in detail.`;
+
+/**
  * Accepts either a public http/https URL or a local file path. Remote URLs are
  * fetched by DashScope; local paths are read and sent inline as base64 data
  * URLs (see `resolveMedia`). Relaxes the previous `z.string().url()` so callers
@@ -29,6 +51,21 @@ const mediaInput = (description: string) =>
     .string()
     .refine((v) => isRemoteUrl(v) || isLocalPath(v), "Must be a public URL or a local file path")
     .describe(description);
+
+/**
+ * Optional thinking-intensity knob shared by all media tools. Maps 1:1 to the
+ * provider's non-standard `thinking_budget` body parameter (max thinking
+ * tokens before answering). Omitted = provider default (thinking on at full
+ * budget for Qwen3.8 hybrid-thinking models).
+ */
+const thinkingBudgetInput = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe(
+    "Maximum tokens the model may spend on thinking before answering (Qwen hybrid-thinking models). Omit to use the provider default.",
+  );
 
 function ok(text: string): CallToolResult {
   return { content: [{ type: "text", text }], isError: false };
@@ -53,10 +90,11 @@ async function mediaCall(
   url: string,
   prompt: string,
   maxTokens: number,
+  thinkingBudget?: number,
 ): Promise<CallToolResult> {
   try {
     const resolved = await resolveMedia(url, kind);
-    const result = await analyze(cfg, { kind, url: resolved, prompt, maxTokens });
+    const result = await analyze(cfg, { kind, url: resolved, prompt, maxTokens, thinkingBudget });
     return ok(result.answer);
   } catch (err) {
     return fail(err);
@@ -74,6 +112,7 @@ async function omniMediaCall(
   input: string,
   prompt: string,
   maxTokens: number,
+  thinkingBudget?: number,
 ): Promise<CallToolResult> {
   try {
     if (kind === "audio") {
@@ -86,6 +125,7 @@ async function omniMediaCall(
         maxTokens,
         model: cfg.omniModel,
         modalities: ["text"],
+        thinkingBudget,
       });
       return ok(result.answer);
     }
@@ -97,6 +137,7 @@ async function omniMediaCall(
       maxTokens,
       model: cfg.omniModel,
       modalities: ["text"],
+      thinkingBudget,
     });
     return ok(result.answer);
   } catch (err) {
@@ -105,16 +146,19 @@ async function omniMediaCall(
 }
 
 export function createServer(cfg: AppConfig = loadConfig()): McpServer {
-  const server = new McpServer({
-    name: "qwen-omni-mcp",
-    version: "0.3.0",
-  });
+  const server = new McpServer(
+    {
+      name: "qwen-omni-mcp",
+      version: "0.4.0",
+    },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.registerTool(
     "analyze_video",
     {
       description:
-        "Analyze a video using Qwen3.7-Plus (multimodal). The model reads the video natively — no client-side frame extraction. Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
+        "Watch and analyze a video using Qwen3.8-Max (native multimodal). Use this whenever you need to see a video you cannot view natively. The model reads the video natively — no client-side frame extraction. Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
       inputSchema: {
         video_url: mediaInput("Public URL or local file path of the video to analyze"),
         question: z
@@ -127,16 +171,18 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
           .positive()
           .default(MAX_TOKENS_DEFAULT_VIDEO)
           .describe("Maximum tokens in the response"),
+        thinking_budget: thinkingBudgetInput,
       },
     },
-    async (args) => mediaCall(cfg, "video", args.video_url, args.question, args.max_tokens),
+    async (args) =>
+      mediaCall(cfg, "video", args.video_url, args.question, args.max_tokens, args.thinking_budget),
   );
 
   server.registerTool(
     "analyze_image",
     {
       description:
-        "Analyze an image using Qwen3.7-Plus (multimodal). Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
+        "View, read, or analyze an image using Qwen3.8-Max (native multimodal). Use this whenever you need to see an image you cannot view natively (e.g., your file reader returns '[Unsupported Image]'). Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
       inputSchema: {
         image_url: mediaInput("Public URL or local file path of the image to analyze"),
         question: z
@@ -149,16 +195,18 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
           .positive()
           .default(MAX_TOKENS_DEFAULT_IMAGE)
           .describe("Maximum tokens in the response"),
+        thinking_budget: thinkingBudgetInput,
       },
     },
-    async (args) => mediaCall(cfg, "image", args.image_url, args.question, args.max_tokens),
+    async (args) =>
+      mediaCall(cfg, "image", args.image_url, args.question, args.max_tokens, args.thinking_budget),
   );
 
   server.registerTool(
     "analyze_audio",
     {
       description:
-        "Analyze an audio file using Qwen3.5-Omni (qwen3.5-omni-plus, native audio understanding). Pass a public URL (http/https) or a local file path; local files are sent inline as base64 (25MB guardrail, mp3/wav/flac/ogg/m4a/aac).",
+        "Listen to and analyze an audio file using Qwen3.5-Omni (qwen3.5-omni-plus, native audio understanding). Use this whenever you need to hear audio you cannot process natively. Pass a public URL (http/https) or a local file path; local files are sent inline as base64 (25MB guardrail, mp3/wav/flac/ogg/m4a/aac).",
       inputSchema: {
         audio_url: mediaInput("Public URL or local file path of the audio to analyze"),
         question: z
@@ -171,16 +219,25 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
           .positive()
           .default(MAX_TOKENS_DEFAULT_AUDIO)
           .describe("Maximum tokens in the response"),
+        thinking_budget: thinkingBudgetInput,
       },
     },
-    async (args) => omniMediaCall(cfg, "audio", args.audio_url, args.question, args.max_tokens),
+    async (args) =>
+      omniMediaCall(
+        cfg,
+        "audio",
+        args.audio_url,
+        args.question,
+        args.max_tokens,
+        args.thinking_budget,
+      ),
   );
 
   server.registerTool(
     "analyze_audio_video",
     {
       description:
-        "Analyze a video (including its audio track) using Qwen3.5-Omni (qwen3.5-omni-plus, native audio+video understanding). Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
+        "Watch and listen to a video (visuals AND its audio track) using Qwen3.5-Omni (qwen3.5-omni-plus, native audio+video understanding). Use this when what is said or heard in the video matters. Pass a public URL (http/https) or a local file path; local files are sent inline as a base64 data URL (25MB guardrail).",
       inputSchema: {
         video_url: mediaInput("Public URL or local file path of the video to analyze"),
         question: z
@@ -193,9 +250,18 @@ export function createServer(cfg: AppConfig = loadConfig()): McpServer {
           .positive()
           .default(MAX_TOKENS_DEFAULT_VIDEO)
           .describe("Maximum tokens in the response"),
+        thinking_budget: thinkingBudgetInput,
       },
     },
-    async (args) => omniMediaCall(cfg, "video", args.video_url, args.question, args.max_tokens),
+    async (args) =>
+      omniMediaCall(
+        cfg,
+        "video",
+        args.video_url,
+        args.question,
+        args.max_tokens,
+        args.thinking_budget,
+      ),
   );
 
   server.registerTool(

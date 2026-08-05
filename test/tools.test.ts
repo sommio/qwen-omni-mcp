@@ -13,7 +13,7 @@ import { createServer } from "../src/server.js";
 const SECRET_KEY = "sk-secret-key-1234567890"; // gitleaks:allow — dummy test fixture, not a real key
 const cfg: AppConfig = {
   apiKey: SECRET_KEY,
-  model: "qwen3.7-plus",
+  model: "qwen3.8-max",
   omniModel: "qwen3.5-omni-plus",
   baseUrl: "https://dashscope.test/v1",
   timeoutMs: 5_000,
@@ -36,7 +36,7 @@ afterAll(() => {
 function mockOk(text = "answer") {
   server.use(
     http.post(endpoint, () =>
-      HttpResponse.json({ choices: [{ message: { content: text } }], model: "qwen3.7-plus" }),
+      HttpResponse.json({ choices: [{ message: { content: text } }], model: "qwen3.8-max" }),
     ),
   );
 }
@@ -91,6 +91,54 @@ describe("MCP tool wiring (in-memory e2e)", () => {
     });
   });
 
+  it("returns capability-aware server instructions on initialize", async () => {
+    await withClient((client) => {
+      const instructions = client.getInstructions();
+      expect(instructions).toBeDefined();
+      expect(instructions).toContain("VIEW, READ, or understand");
+      expect(instructions).toContain("[Unsupported Image]");
+      expect(instructions).toContain("prefer your native vision");
+      expect(instructions).toContain("analyze_image");
+      return Promise.resolve();
+    });
+  });
+
+  it("exposes thinking_budget on every media tool", async () => {
+    await withClient(async (client) => {
+      const { tools } = await client.listTools();
+      const mediaTools = tools.filter((t) => t.name.startsWith("analyze_"));
+      expect(mediaTools).toHaveLength(4);
+      for (const t of mediaTools) {
+        const props = (t.inputSchema as { properties?: Record<string, unknown> }).properties;
+        expect(props, `${t.name} should expose thinking_budget`).toHaveProperty("thinking_budget");
+      }
+    });
+  });
+
+  it("forwards thinking_budget into the request body when provided", async () => {
+    const cap = mockCapture();
+    await withClient(async (client) => {
+      await client.callTool({
+        name: "analyze_image",
+        arguments: { image_url: "https://v/i.png", question: "q", thinking_budget: 2048 },
+      });
+    });
+    const body = await cap.body();
+    expect(body.thinking_budget).toBe(2048);
+  });
+
+  it("omits thinking_budget from the request body when not provided", async () => {
+    const cap = mockCapture();
+    await withClient(async (client) => {
+      await client.callTool({
+        name: "analyze_image",
+        arguments: { image_url: "https://v/i.png", question: "q" },
+      });
+    });
+    const body = await cap.body();
+    expect("thinking_budget" in body).toBe(false);
+  });
+
   it("analyze_video returns the model answer", async () => {
     mockOk("a cat on rails");
     await withClient(async (client) => {
@@ -136,7 +184,7 @@ describe("MCP tool wiring (in-memory e2e)", () => {
       const text = textOf(r);
       expect(text).not.toContain(SECRET_KEY);
       expect(text).toContain("sk-s…7890");
-      expect(text).toContain("qwen3.7-plus");
+      expect(text).toContain("qwen3.8-max");
       expect(text).toContain("qwen3.5-omni-plus");
     });
   });

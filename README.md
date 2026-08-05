@@ -1,15 +1,16 @@
 # qwen-omni-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video, image, audio, and audio-video understanding** via [Bailian (DashScope)](https://bailian.console.aliyun.com/) using the multimodal **Qwen3.7-Plus** and **Qwen3.5-Omni** models.
+An [MCP](https://modelcontextprotocol.io) server that gives Claude Code and other AI agents **video, image, audio, and audio-video understanding** via [Bailian (DashScope)](https://bailian.console.aliyun.com/) using the multimodal **Qwen3.8-Max** and **Qwen3.5-Omni** models.
 
-Qwen3.7-Plus reads video natively — **no client-side frame extraction**. Qwen3.5-Omni adds native **audio** understanding (and audio-track awareness for video). Pass a public media URL **or a local file path**; the model does the rest.
+Qwen3.8-Max reads video natively — **no client-side frame extraction**. Qwen3.5-Omni adds native **audio** understanding (and audio-track awareness for video). Pass a public media URL **or a local file path**; the model does the rest. The server also ships MCP **instructions** that teach text-only agents to reach for these tools when they need to view/read media — while telling natively multimodal agents to prefer their own vision.
 
 ## Highlights
 
 - **Native video understanding** — send a video URL or local file, get grounded analysis
-- **Image understanding** — describe, Q&A, OCR
+- **Image understanding** — describe, Q&A, OCR; doubles as the "eyes" for text-only agents whose file reader can't display images
 - **Audio understanding** — transcribe, summarize, analyze speech/sound (mp3/wav/flac/ogg/m4a/aac)
 - **Audio-video understanding** — analyze a video's visuals **and** its sound track together
+- **Thinking control** — optional per-call `thinking_budget` on every media tool; omitted = provider default
 - **Local file support** — pass a local path; files are sent inline as base64 (25MB guardrail)
 - **npx-launchable** — one line in your MCP client config
 
@@ -38,7 +39,7 @@ All config is via environment variables (loaded from `.env` by `dotenv`):
 | Variable               | Required | Default                                             | Description                         |
 | ---------------------- | -------- | --------------------------------------------------- | ----------------------------------- |
 | `DASHSCOPE_API_KEY`    | yes      | —                                                   | Bailian API key                     |
-| `QWEN_MODEL`           | no       | `qwen3.7-plus`                                      | Model id for video/image analysis   |
+| `QWEN_MODEL`           | no       | `qwen3.8-max`                                       | Model id for video/image analysis   |
 | `QWEN_OMNI_MODEL`      | no       | `qwen3.5-omni-plus`                                 | Omni model id for audio/audio-video |
 | `DASHSCOPE_BASE_URL`   | no       | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI-compatible endpoint          |
 | `QWEN_REQUEST_TIMEOUT` | no       | `300`                                               | Per-request timeout in seconds      |
@@ -90,6 +91,8 @@ For local development without publishing:
 | `check_endpoint_status` | Show configured endpoint/model (key redacted)                         |
 
 Each media tool accepts a public `http`/`https` URL **or a local file path**. Local files are read and sent inline as base64, with a 25MB guardrail (verified up to a 14MB video / ~18MB body on Qwen3.7-Plus, and an 8.8MB video / ~11.7MB base64 body on Qwen3.5-Omni, both HTTP 200). Files larger than 25MB must be hosted at a public URL instead. Local input is validated by extension + magic-byte signature before encoding, so non-media files are rejected.
+
+Each media tool also accepts an optional `thinking_budget` (positive integer): the maximum tokens the model may spend thinking before answering. Omit it to use the provider default (thinking on at full budget for Qwen3.8 hybrid-thinking models). Thinking tokens are billed but do **not** count against `max_tokens`, which limits the answer itself.
 
 `analyze_audio` / `analyze_audio_video` use the omni model (`QWEN_OMNI_MODEL`, default `qwen3.5-omni-plus`) and force text-only output. Audio is sent as an `input_audio` block in the `data:;base64,<b64>` form with a `format` field (mp3/wav/flac/ogg/m4a/aac).
 
