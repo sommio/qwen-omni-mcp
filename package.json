@@ -1,7 +1,7 @@
 {
   "name": "qwen-omni-mcp",
-  "version": "0.3.0",
-  "description": "MCP server for video/image/audio understanding via Bailian (DashScope) Qwen3.7-Plus + Qwen3.5-Omni",
+  "version": "0.4.0",
+  "description": "MCP server for video/image/audio understanding via Bailian (DashScope) Qwen3.8-Max + Qwen3.5-Omni",
   "license": "MIT",
   "repository": {
     "type": "git",

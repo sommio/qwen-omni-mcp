@@ -13,6 +13,12 @@ export interface AnalyzeParams {
   audioFormat?: string;
   /** Output modalities. Omni calls send `["text"]` to force text-only output. */
   modalities?: string[];
+  /**
+   * Maximum tokens the model may spend on thinking before answering (Qwen
+   * hybrid-thinking models). Omit to use the provider default. Passed through
+   * as the non-standard `thinking_budget` body parameter.
+   */
+  thinkingBudget?: number | undefined;
 }
 
 export interface AnalyzeResult {
@@ -81,6 +87,9 @@ export function buildPayload(cfg: AppConfig, params: AnalyzeParams): Record<stri
   };
   if (params.modalities) {
     payload.modalities = params.modalities;
+  }
+  if (params.thinkingBudget !== undefined) {
+    payload.thinking_budget = params.thinkingBudget;
   }
   return payload;
 }

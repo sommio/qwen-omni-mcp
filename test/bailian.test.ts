@@ -6,7 +6,7 @@ import { analyze, buildPayload, BailianError } from "../src/bailian.js";
 
 const cfg: AppConfig = {
   apiKey: "sk-test",
-  model: "qwen3.7-plus",
+  model: "qwen3.8-max",
   omniModel: "qwen3.5-omni-plus",
   baseUrl: "https://dashscope.test/v1",
   timeoutMs: 5_000,
@@ -26,7 +26,7 @@ afterAll(() => {
   server.close();
 });
 
-function jsonOk(text = "answer", model = "qwen3.7-plus") {
+function jsonOk(text = "answer", model = "qwen3.8-max") {
   return HttpResponse.json({ choices: [{ message: { content: text } }], model });
 }
 
@@ -40,7 +40,7 @@ describe("buildPayload", () => {
     });
     const content = (p as { messages: { content: unknown[] }[] }).messages[0]!.content;
     expect(content[1]).toEqual({ type: "video_url", video_url: { url: "https://v/x.mp4" } });
-    expect(p).toMatchObject({ model: "qwen3.7-plus", max_tokens: 10 });
+    expect(p).toMatchObject({ model: "qwen3.8-max", max_tokens: 10 });
   });
 
   it("builds an image_url content block", () => {
@@ -82,8 +82,29 @@ describe("buildPayload", () => {
       prompt: "p",
       maxTokens: 10,
     });
-    expect(p).toMatchObject({ model: "qwen3.7-plus" });
+    expect(p).toMatchObject({ model: "qwen3.8-max" });
     expect("modalities" in p).toBe(false);
+  });
+
+  it("omits thinking_budget when thinkingBudget is not provided", () => {
+    const p = buildPayload(cfg, {
+      kind: "image",
+      url: "https://v/i.png",
+      prompt: "p",
+      maxTokens: 10,
+    });
+    expect("thinking_budget" in p).toBe(false);
+  });
+
+  it("passes thinking_budget through when thinkingBudget is provided", () => {
+    const p = buildPayload(cfg, {
+      kind: "image",
+      url: "https://v/i.png",
+      prompt: "p",
+      maxTokens: 10,
+      thinkingBudget: 1024,
+    });
+    expect(p).toMatchObject({ thinking_budget: 1024 });
   });
 });
 
@@ -97,7 +118,7 @@ describe("analyze", () => {
       maxTokens: 10,
     });
     expect(r.answer).toBe("a cat on rails");
-    expect(r.model).toBe("qwen3.7-plus");
+    expect(r.model).toBe("qwen3.8-max");
   });
 
   it("sends bearer auth and the model in the body", async () => {
@@ -111,7 +132,7 @@ describe("analyze", () => {
     await analyze(cfg, { kind: "image", url: "https://v/i.png", prompt: "p", maxTokens: 7 });
     expect(captured!.headers.get("authorization")).toBe("Bearer sk-test");
     const body = (await captured!.json()) as { model: string };
-    expect(body.model).toBe("qwen3.7-plus");
+    expect(body.model).toBe("qwen3.8-max");
   });
 
   it("maps a 401 to a BailianError with the status", async () => {

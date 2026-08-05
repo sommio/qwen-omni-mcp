@@ -9,7 +9,7 @@ export interface AppConfig {
 }
 
 /** Multimodal model for video/image analysis (text+image+video, no audio). */
-export const DEFAULT_MODEL = "qwen3.7-plus";
+export const DEFAULT_MODEL = "qwen3.8-max";
 /** Omni model for audio and audio-video analysis (native audio understanding). */
 export const DEFAULT_OMNI_MODEL = "qwen3.5-omni-plus";
 export const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
